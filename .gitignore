@@ -1,0 +1,11 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Model / checkpoint artifacts
+*.pt
+*.pth
+
+# SLURM / runtime logs
+*.out
+*.err

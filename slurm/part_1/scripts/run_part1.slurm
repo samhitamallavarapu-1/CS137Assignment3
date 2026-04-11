@@ -5,8 +5,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
-#SBATCH --time=24:00:00
+#SBATCH --mem=64G
+#SBATCH --time=48:00:00
 #SBATCH --output=slurm/part_1/logs/%x_%j.out
 #SBATCH --error=slurm/part_1/logs/%x_%j.err
 
@@ -21,9 +21,9 @@ PYTHON="$HOME/.conda/envs/cs137-cnn/bin/python"
 #   sbatch --export=ALL,RUN_NAME=part1_lr1e4,LR=1e-4,BATCH_SIZE=1 slurm/part_1/scripts/run_part1.slurm
 RUN_NAME="${RUN_NAME:-part1_${SLURM_JOB_ID}}"
 YEARS="${YEARS:-2019-2023}"
-EPOCHS="${EPOCHS:-20}"
-BATCH_SIZE="${BATCH_SIZE:-2}"
-LR="${LR:-2e-4}"
+EPOCHS="${EPOCHS:-80}"
+BATCH_SIZE="${BATCH_SIZE:-32}"
+LR="${LR:-1e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-1e-4}"
 LOSS="${LOSS:-mse}"
 D_MODEL="${D_MODEL:-256}"

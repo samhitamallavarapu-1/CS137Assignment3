@@ -9,7 +9,9 @@ variants:
 from __future__ import annotations
 
 import math
-from typing import Any, Dict
+import os
+import pathlib
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -249,6 +251,7 @@ class Part2HierarchicalSeq2Seq(nn.Module):
         self.register_buffer("weather_std", None, persistent=False)
         self.register_buffer("energy_mean", None, persistent=False)
         self.register_buffer("energy_std", None, persistent=False)
+        self._denormalize_output = False
 
     def _resolve_crop_box(self, h: int, w: int) -> tuple[int, int, int, int]:
         if self.config.crop_mode == "full":
@@ -428,12 +431,56 @@ class Part2HierarchicalSeq2Seq(nn.Module):
         memory = self.temporal_encoder(enc_in)
         decoded = self.temporal_decoder(dec_in, memory)
         preds = self.pred_head(decoded)
+        if self._denormalize_output and self.energy_mean is not None and self.energy_std is not None:
+            preds = preds * self.energy_std.view(1, 1, -1) + self.energy_mean.view(1, 1, -1)
         return preds
 
 
 # -----------------------------
 # Factory
 # -----------------------------
+
+def _resolve_checkpoint_path(base_dir: str) -> Optional[str]:
+    candidates = [
+        os.path.join(base_dir, "best.pt"),
+        os.path.join(base_dir, "last.pt"),
+        os.path.join(base_dir, "checkpoints", "best.pt"),
+        os.path.join(base_dir, "checkpoints", "last.pt"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _load_checkpoint(checkpoint_path: str) -> Tuple[dict, dict]:
+    try:
+        with torch.serialization.safe_globals([pathlib.PosixPath]):
+            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    except AttributeError:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+
+    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
+        state_dict = checkpoint["model_state"]
+    elif isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        state_dict = checkpoint["state_dict"]
+    elif isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        state_dict = checkpoint["model_state_dict"]
+    elif isinstance(checkpoint, dict) and any(isinstance(v, dict) for v in checkpoint.values()):
+        state_dict = checkpoint
+    else:
+        state_dict = checkpoint
+
+    return state_dict, checkpoint
+
+
+def _load_optional_tensor(checkpoint: dict, key: str) -> torch.Tensor | None:
+    if key not in checkpoint:
+        return None
+    value = checkpoint[key]
+    tensor = torch.as_tensor(value).float()
+    return tensor
+
 
 def _model_from_metadata(metadata: Dict[str, Any]) -> Part2HierarchicalSeq2Seq:
     cfg = ModelConfig(
@@ -443,7 +490,29 @@ def _model_from_metadata(metadata: Dict[str, Any]) -> Part2HierarchicalSeq2Seq:
         history_len=int(metadata.get("history_len", 168)),
         future_steps=int(metadata.get("future_len", 24)),
     )
-    return Part2HierarchicalSeq2Seq(cfg)
+    model = Part2HierarchicalSeq2Seq(cfg)
+
+    checkpoint_path = _resolve_checkpoint_path(os.path.dirname(__file__))
+    if checkpoint_path is not None:
+        state_dict, checkpoint = _load_checkpoint(checkpoint_path)
+        model.load_state_dict(state_dict, strict=False)
+        model._denormalize_output = True
+        print(f"Loaded checkpoint from {checkpoint_path}")
+
+        energy_mean = _load_optional_tensor(checkpoint, "energy_mean")
+        energy_std = _load_optional_tensor(checkpoint, "energy_std")
+        weather_mean = _load_optional_tensor(checkpoint, "weather_mean")
+        weather_std = _load_optional_tensor(checkpoint, "weather_std")
+
+        if energy_mean is not None and energy_std is not None:
+            model.energy_mean = energy_mean.view(1, 1, -1)
+            model.energy_std = energy_std.view(1, 1, -1)
+
+        if weather_mean is not None and weather_std is not None:
+            model.weather_mean = weather_mean.view(-1, 1, 1)
+            model.weather_std = weather_std.view(-1, 1, 1)
+
+    return model
 
 
 def get_model(*args, **kwargs) -> Part2HierarchicalSeq2Seq:

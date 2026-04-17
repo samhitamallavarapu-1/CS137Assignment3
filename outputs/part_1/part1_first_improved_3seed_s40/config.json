@@ -10,7 +10,7 @@
   "blocked_val_position": "tail",
   "val_years": "",
   "purge_gap": -1,
-  "seed": 42,
+  "seed": 40,
   "max_train_samples": 0,
   "max_val_samples": 0,
   "crop_mode": "new_england",

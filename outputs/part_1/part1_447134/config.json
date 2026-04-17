@@ -1,7 +1,7 @@
 {
   "data_dir": "/cluster/tufts/c26sp1cs0137/data/assignment3_data",
   "output_dir": "outputs/part_1",
-  "run_name": "part1_445967",
+  "run_name": "part1_447134",
   "years": "2019-2023",
   "history_len": 168,
   "future_len": 24,
@@ -28,7 +28,7 @@
   "patch_grid_h": 10,
   "patch_grid_w": 10,
   "epochs": 80,
-  "batch_size": 64,
+  "batch_size": 16,
   "lr": 0.0001,
   "weight_decay": 0.0001,
   "loss": "mse",

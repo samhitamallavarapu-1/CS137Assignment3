@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Training script for Assignment 3 Part 1 baseline CNN-Transformer patch model.
+"""Training script for Assignment 3 Part 2 architecture-search models.
 
 Designed for HPC runs where many experiments are launched from one file by
 varying command-line arguments in SLURM scripts.
@@ -603,11 +603,11 @@ def run_epoch(
 # -----------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train Part 1 baseline CNN-Transformer model")
+    parser = argparse.ArgumentParser(description="Train Part 2 hierarchical encoder-decoder models")
 
     # Data / split
     parser.add_argument("--data-dir", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/part_1"))
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs/part_2"))
     parser.add_argument("--run-name", type=str, default="")
     parser.add_argument("--years", type=str, default="2019-2023")
     parser.add_argument("--history-len", type=int, default=168)
@@ -646,11 +646,17 @@ def main() -> None:
     parser.add_argument("--d-model", type=int, default=256)
     parser.add_argument("--num-heads", type=int, default=8)
     parser.add_argument("--num-layers", type=int, default=4)
+    parser.add_argument("--decoder-layers", type=int, default=3)
+    parser.add_argument("--spatial-layers", type=int, default=2)
     parser.add_argument("--ff-dim", type=int, default=1024)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--cnn-hidden-dim", type=int, default=64)
+    parser.add_argument("--residual-blocks", type=int, default=3)
     parser.add_argument("--patch-grid-h", type=int, default=10)
     parser.add_argument("--patch-grid-w", type=int, default=10)
+    parser.add_argument("--arch-variant", choices=["no_cnn", "residual_cnn"], default="no_cnn")
+    parser.add_argument("--use-weather-stats", action="store_true", default=True)
+    parser.add_argument("--no-weather-stats", action="store_false", dest="use_weather_stats")
 
     # Optimization
     parser.add_argument("--epochs", type=int, default=80)
@@ -694,7 +700,7 @@ def main() -> None:
         torch.backends.cudnn.benchmark = bool(args.cudnn_benchmark)
 
     print("=" * 80)
-    print("Part 1 training")
+    print("Part 2 training")
     print(f"run_dir: {run_dir}")
     print(f"years: {years}")
     print(f"device: {device}")
@@ -836,14 +842,27 @@ def main() -> None:
         num_zones=len(zone_cols),
         calendar_dim=calendar_feats.shape[1],
         future_steps=args.future_len,
+        history_len=args.history_len,
         d_model=args.d_model,
         num_heads=args.num_heads,
         num_layers=args.num_layers,
+        decoder_layers=args.decoder_layers,
+        spatial_layers=args.spatial_layers,
         ff_dim=args.ff_dim,
         dropout=args.dropout,
         cnn_hidden_dim=args.cnn_hidden_dim,
+        residual_blocks=args.residual_blocks,
         patch_grid_h=args.patch_grid_h,
         patch_grid_w=args.patch_grid_w,
+        arch_variant=args.arch_variant,
+        use_weather_stats=args.use_weather_stats,
+        crop_mode=args.crop_mode,
+        crop_y0=args.crop_y0,
+        crop_y1=args.crop_y1,
+        crop_x0=args.crop_x0,
+        crop_x1=args.crop_x1,
+        downsample_h=args.downsample_h,
+        downsample_w=args.downsample_w,
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -915,12 +934,7 @@ def main() -> None:
 
     if resume_path is not None:
         print(f"Resuming from checkpoint: {resume_path}")
-        # Saved checkpoints include non-tensor metadata (e.g., argparse Path values),
-        # so resume must use full unpickling on PyTorch 2.6+.
-        try:
-            ckpt = torch.load(resume_path, map_location="cpu", weights_only=False)
-        except TypeError:
-            ckpt = torch.load(resume_path, map_location="cpu")
+        ckpt = torch.load(resume_path, map_location="cpu")
         model.load_state_dict(ckpt["model_state"])
         if "optimizer_state" in ckpt and ckpt["optimizer_state"] is not None:
             optimizer.load_state_dict(ckpt["optimizer_state"])

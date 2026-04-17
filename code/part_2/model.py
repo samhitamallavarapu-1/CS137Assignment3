@@ -1,8 +1,9 @@
-"""Baseline CNN-Transformer patch model for CS137 Assignment 3 (Part 1).
+"""Part 2 architecture search models for CS137 Assignment 3.
 
-Supports two usage paths:
-1) Training path: call forward(...) directly with preprocessed tensors.
-2) Evaluation path: call adapt_inputs(raw_inputs) then forward(*adapted).
+Implements a hierarchical attention + encoder-decoder architecture with two
+variants:
+- no_cnn: remove CNN feature extractor and tokenize weather by direct pooling.
+- residual_cnn: use residual CNN blocks before spatial tokenization.
 """
 
 from __future__ import annotations
@@ -28,11 +29,16 @@ class ModelConfig:
         d_model: int = 256,
         num_heads: int = 8,
         num_layers: int = 4,
+        decoder_layers: int = 3,
         ff_dim: int = 1024,
         dropout: float = 0.1,
         cnn_hidden_dim: int = 64,
+        residual_blocks: int = 3,
+        spatial_layers: int = 2,
         patch_grid_h: int = 10,
         patch_grid_w: int = 10,
+        arch_variant: str = "no_cnn",
+        use_weather_stats: bool = True,
         crop_mode: str = "new_england",
         crop_y0: int = 0,
         crop_y1: int = 450,
@@ -49,11 +55,16 @@ class ModelConfig:
         self.d_model = int(d_model)
         self.num_heads = int(num_heads)
         self.num_layers = int(num_layers)
+        self.decoder_layers = int(decoder_layers)
         self.ff_dim = int(ff_dim)
         self.dropout = float(dropout)
         self.cnn_hidden_dim = int(cnn_hidden_dim)
+        self.residual_blocks = int(residual_blocks)
+        self.spatial_layers = int(spatial_layers)
         self.patch_grid_h = int(patch_grid_h)
         self.patch_grid_w = int(patch_grid_w)
+        self.arch_variant = str(arch_variant)
+        self.use_weather_stats = bool(use_weather_stats)
         self.crop_mode = str(crop_mode)
         self.crop_y0 = int(crop_y0)
         self.crop_y1 = int(crop_y1)
@@ -63,20 +74,26 @@ class ModelConfig:
         self.downsample_w = int(downsample_w)
 
 
-class ConvBlock(nn.Module):
-    def __init__(self, in_ch: int, out_ch: int) -> None:
+class ResidualConvBlock(nn.Module):
+    def __init__(self, channels: int) -> None:
         super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(out_ch),
-            nn.GELU(),
-        )
+        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(channels)
+        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.block(x)
+        residual = x
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = F.gelu(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = F.gelu(x + residual)
+        return x
 
 
-class WeatherPatchTokenizer(nn.Module):
+class WeatherTokenizer(nn.Module):
     def __init__(
         self,
         in_channels: int,
@@ -84,27 +101,46 @@ class WeatherPatchTokenizer(nn.Module):
         hidden_dim: int,
         patch_grid_h: int,
         patch_grid_w: int,
+        variant: str,
+        residual_blocks: int,
     ) -> None:
         super().__init__()
         self.patch_grid_h = patch_grid_h
         self.patch_grid_w = patch_grid_w
+        self.variant = variant
 
-        self.cnn = nn.Sequential(
-            ConvBlock(in_channels, hidden_dim),
-            ConvBlock(hidden_dim, hidden_dim),
-            ConvBlock(hidden_dim, hidden_dim * 2),
-            ConvBlock(hidden_dim * 2, hidden_dim * 2),
-        )
+        if variant == "residual_cnn":
+            layers = [
+                nn.Conv2d(in_channels, hidden_dim, kernel_size=5, stride=2, padding=2, bias=False),
+                nn.BatchNorm2d(hidden_dim),
+                nn.GELU(),
+            ]
+            for _ in range(max(1, residual_blocks)):
+                layers.append(ResidualConvBlock(hidden_dim))
+            layers.extend(
+                [
+                    nn.Conv2d(hidden_dim, hidden_dim * 2, kernel_size=3, stride=2, padding=1, bias=False),
+                    nn.BatchNorm2d(hidden_dim * 2),
+                    nn.GELU(),
+                ]
+            )
+            self.backbone = nn.Sequential(*layers)
+            token_in = hidden_dim * 2
+        elif variant == "no_cnn":
+            self.backbone = nn.Identity()
+            token_in = in_channels
+        else:
+            raise ValueError(f"Unknown arch variant: {variant}")
+
         self.pool = nn.AdaptiveAvgPool2d((patch_grid_h, patch_grid_w))
-        self.proj = nn.Conv2d(hidden_dim * 2, d_model, kernel_size=1)
+        self.proj = nn.Conv2d(token_in, d_model, kernel_size=1)
 
     def forward(self, weather: torch.Tensor) -> torch.Tensor:
-        # weather: [B, T, Cw, H, W]
         if weather.ndim != 5:
             raise ValueError(f"weather must be [B,T,C,H,W], got {tuple(weather.shape)}")
         bsz, steps, _, _, _ = weather.shape
         x = weather.reshape(bsz * steps, *weather.shape[2:])
-        x = self.cnn(x)
+        x = self.backbone(x)
         x = self.pool(x)
         x = self.proj(x)
         x = x.flatten(2).transpose(1, 2)
@@ -112,28 +148,74 @@ class WeatherPatchTokenizer(nn.Module):
         return x
 
 
-class BaselineCNNTransformerPatch(nn.Module):
+class HourlyWeatherSummarizer(nn.Module):
+    """Hierarchical spatial attention: summarize per-hour weather patches."""
+
+    def __init__(self, d_model: int, num_heads: int, ff_dim: int, dropout: float, num_layers: int) -> None:
+        super().__init__()
+        spatial_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=num_heads,
+            dim_feedforward=ff_dim,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.spatial_encoder = nn.TransformerEncoder(spatial_layer, num_layers=num_layers)
+        self.query = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
+        self.attn = nn.MultiheadAttention(d_model, num_heads, dropout=dropout, batch_first=True)
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, patch_tokens: torch.Tensor) -> torch.Tensor:
+        bsz, steps, num_patches, d_model = patch_tokens.shape
+        x = patch_tokens.reshape(bsz * steps, num_patches, d_model)
+        x = self.spatial_encoder(x)
+
+        q = self.query.expand(bsz * steps, -1, -1)
+        hour_token, _ = self.attn(q, x, x, need_weights=False)
+        hour_token = self.norm(hour_token)
+        hour_token = hour_token.reshape(bsz, steps, d_model)
+        return hour_token
+
+
+class Part2HierarchicalSeq2Seq(nn.Module):
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
         self.config = config
 
-        self.patch_tokenizer = WeatherPatchTokenizer(
+        self.patch_tokenizer = WeatherTokenizer(
             in_channels=config.weather_channels,
             d_model=config.d_model,
             hidden_dim=config.cnn_hidden_dim,
             patch_grid_h=config.patch_grid_h,
             patch_grid_w=config.patch_grid_w,
+            variant=config.arch_variant,
+            residual_blocks=config.residual_blocks,
+        )
+        self.num_patches = config.patch_grid_h * config.patch_grid_w
+
+        self.spatial_pos_embed = nn.Parameter(torch.randn(1, 1, self.num_patches, config.d_model) * 0.02)
+
+        self.weather_summarizer = HourlyWeatherSummarizer(
+            d_model=config.d_model,
+            num_heads=config.num_heads,
+            ff_dim=config.ff_dim,
+            dropout=config.dropout,
+            num_layers=config.spatial_layers,
         )
 
-        self.num_patches = config.patch_grid_h * config.patch_grid_w
+        if config.use_weather_stats:
+            # Per-hour localized weather statistics: mean/std/min/max over spatial map.
+            self.weather_stats_proj = nn.Linear(config.weather_channels * 4, config.d_model)
+        else:
+            self.weather_stats_proj = None
 
         self.hist_tabular_embed = nn.Linear(config.num_zones + config.calendar_dim, config.d_model)
         self.fut_tabular_embed = nn.Linear(config.num_zones + config.calendar_dim, config.d_model)
-
         self.future_demand_mask = nn.Parameter(torch.zeros(config.num_zones))
-        self.spatial_pos_embed = nn.Parameter(torch.randn(1, 1, self.num_patches, config.d_model) * 0.02)
 
-        encoder_layer = nn.TransformerEncoderLayer(
+        enc_layer = nn.TransformerEncoderLayer(
             d_model=config.d_model,
             nhead=config.num_heads,
             dim_feedforward=config.ff_dim,
@@ -142,7 +224,18 @@ class BaselineCNNTransformerPatch(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=config.num_layers)
+        self.temporal_encoder = nn.TransformerEncoder(enc_layer, num_layers=config.num_layers)
+
+        dec_layer = nn.TransformerDecoderLayer(
+            d_model=config.d_model,
+            nhead=config.num_heads,
+            dim_feedforward=config.ff_dim,
+            dropout=config.dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.temporal_decoder = nn.TransformerDecoder(dec_layer, num_layers=config.decoder_layers)
 
         self.dropout = nn.Dropout(config.dropout)
         self.pred_head = nn.Sequential(
@@ -152,20 +245,15 @@ class BaselineCNNTransformerPatch(nn.Module):
             nn.Linear(config.d_model, config.num_zones),
         )
 
-        # Optional buffers if caller wants to set normalization stats.
         self.register_buffer("weather_mean", None, persistent=False)
         self.register_buffer("weather_std", None, persistent=False)
         self.register_buffer("energy_mean", None, persistent=False)
         self.register_buffer("energy_std", None, persistent=False)
 
-    # -----------------------------
-    # Eval adapter
-    # -----------------------------
     def _resolve_crop_box(self, h: int, w: int) -> tuple[int, int, int, int]:
         if self.config.crop_mode == "full":
             y0, y1, x0, x1 = 0, h, 0, w
         elif self.config.crop_mode == "new_england":
-            # Match train.py tuned defaults.
             y0 = int(round(0.233 * h))
             y1 = int(round(0.858 * h))
             x0 = int(round(0.401 * w))
@@ -208,9 +296,9 @@ class BaselineCNNTransformerPatch(nn.Module):
             raise ValueError(f"weather must be rank-5, got {tuple(weather.shape)}")
 
         if weather.shape[-1] == self.config.weather_channels:
-            weather = weather.permute(0, 1, 4, 2, 3).contiguous()  # [B,T,H,W,C] -> [B,T,C,H,W]
+            weather = weather.permute(0, 1, 4, 2, 3).contiguous()
         elif weather.shape[2] == self.config.weather_channels:
-            weather = weather.contiguous()  # already [B,T,C,H,W]
+            weather = weather.contiguous()
         else:
             raise ValueError(
                 f"Cannot infer weather channel axis from {tuple(weather.shape)} "
@@ -242,16 +330,14 @@ class BaselineCNNTransformerPatch(nn.Module):
         future_weather: torch.Tensor,
         future_time: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Adapt evaluator inputs to this model's forward signature."""
         if history_energy.ndim != 3 or future_time.ndim != 2:
             raise ValueError("history_energy must be [B,Th,Z], future_time must be [B,Tf]")
 
-        bsz, hist_steps, _ = history_energy.shape
+        _, hist_steps, _ = history_energy.shape
 
         hist_weather_proc = self._preprocess_raw_weather(history_weather)
         fut_weather_proc = self._preprocess_raw_weather(future_weather)
 
-        # Reconstruct history timestamps from first future timestamp.
         first_future = future_time[:, :1].to(torch.int64)
         if hist_steps == self.config.history_len:
             offsets = torch.arange(self.config.history_len, 0, -1, device=future_time.device, dtype=torch.int64).view(1, -1)
@@ -274,9 +360,6 @@ class BaselineCNNTransformerPatch(nn.Module):
             fut_calendar.float(),
         )
 
-    # -----------------------------
-    # Core forward
-    # -----------------------------
     def _temporal_encoding(self, total_steps: int, device: torch.device) -> torch.Tensor:
         d_model = self.config.d_model
         position = torch.arange(total_steps, device=device, dtype=torch.float32).unsqueeze(1)
@@ -287,7 +370,15 @@ class BaselineCNNTransformerPatch(nn.Module):
         pe = torch.zeros(total_steps, d_model, device=device)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        return pe.unsqueeze(0).unsqueeze(2)
+        return pe.unsqueeze(0)
+
+    def _weather_stats(self, weather: torch.Tensor) -> torch.Tensor:
+        # weather [B,T,C,H,W] -> engineered [B,T,4*C]
+        mean = weather.mean(dim=(-1, -2))
+        std = weather.std(dim=(-1, -2), unbiased=False)
+        min_v = weather.amin(dim=(-1, -2))
+        max_v = weather.amax(dim=(-1, -2))
+        return torch.cat([mean, std, min_v, max_v], dim=-1)
 
     def forward(
         self,
@@ -312,39 +403,31 @@ class BaselineCNNTransformerPatch(nn.Module):
         if fut_calendar.shape[:2] != (bsz, fut_steps):
             raise ValueError("fut_calendar must align with fut_weather")
 
-        if hist_demand.shape[-1] != self.config.num_zones:
-            raise ValueError(f"Expected num_zones={self.config.num_zones}, got {hist_demand.shape[-1]}")
-        if hist_calendar.shape[-1] != self.config.calendar_dim or fut_calendar.shape[-1] != self.config.calendar_dim:
-            raise ValueError(f"Expected calendar_dim={self.config.calendar_dim}")
+        hist_patch = self.patch_tokenizer(hist_weather) + self.spatial_pos_embed
+        fut_patch = self.patch_tokenizer(fut_weather) + self.spatial_pos_embed
 
-        if self.config.future_steps > 0 and fut_steps != self.config.future_steps:
-            raise ValueError(f"Expected future_steps={self.config.future_steps}, got {fut_steps}")
+        hist_hour = self.weather_summarizer(hist_patch)
+        fut_hour = self.weather_summarizer(fut_patch)
 
-        hist_spatial = self.patch_tokenizer(hist_weather) + self.spatial_pos_embed
-        fut_spatial = self.patch_tokenizer(fut_weather) + self.spatial_pos_embed
+        if self.weather_stats_proj is not None:
+            hist_hour = hist_hour + self.weather_stats_proj(self._weather_stats(hist_weather))
+            fut_hour = fut_hour + self.weather_stats_proj(self._weather_stats(fut_weather))
 
-        hist_tab = self.hist_tabular_embed(torch.cat([hist_demand, hist_calendar], dim=-1)).unsqueeze(2)
+        hist_tab = self.hist_tabular_embed(torch.cat([hist_demand, hist_calendar], dim=-1))
         masked_future_demand = self.future_demand_mask.view(1, 1, -1).expand(bsz, fut_steps, -1)
-        fut_tab = self.fut_tabular_embed(torch.cat([masked_future_demand, fut_calendar], dim=-1)).unsqueeze(2)
+        fut_tab = self.fut_tabular_embed(torch.cat([masked_future_demand, fut_calendar], dim=-1))
 
-        hist_group = torch.cat([hist_spatial, hist_tab], dim=2)
-        fut_group = torch.cat([fut_spatial, fut_tab], dim=2)
-        all_group = torch.cat([hist_group, fut_group], dim=1)
+        enc_in = hist_hour + hist_tab
+        dec_in = fut_hour + fut_tab
 
-        total_steps = hist_steps + fut_steps
-        all_group = all_group + self._temporal_encoding(total_steps, all_group.device)
+        hist_pe = self._temporal_encoding(hist_steps, enc_in.device)
+        fut_pe = self._temporal_encoding(fut_steps, enc_in.device)
+        enc_in = self.dropout(enc_in + hist_pe)
+        dec_in = self.dropout(dec_in + fut_pe)
 
-        tokens_per_step = self.num_patches + 1
-        seq = all_group.reshape(bsz, total_steps * tokens_per_step, self.config.d_model)
-        seq = self.dropout(seq)
-
-        encoded = self.transformer(seq)
-
-        fut_t_idx = torch.arange(hist_steps, total_steps, device=encoded.device)
-        fut_tab_pos = fut_t_idx * tokens_per_step + self.num_patches
-        fut_states = encoded[:, fut_tab_pos, :]
-
-        preds = self.pred_head(fut_states)
+        memory = self.temporal_encoder(enc_in)
+        decoded = self.temporal_decoder(dec_in, memory)
+        preds = self.pred_head(decoded)
         return preds
 
 
@@ -352,7 +435,7 @@ class BaselineCNNTransformerPatch(nn.Module):
 # Factory
 # -----------------------------
 
-def _model_from_metadata(metadata: Dict[str, Any]) -> BaselineCNNTransformerPatch:
+def _model_from_metadata(metadata: Dict[str, Any]) -> Part2HierarchicalSeq2Seq:
     cfg = ModelConfig(
         weather_channels=int(metadata.get("n_weather_vars", 7)),
         num_zones=int(metadata["n_zones"]),
@@ -360,10 +443,10 @@ def _model_from_metadata(metadata: Dict[str, Any]) -> BaselineCNNTransformerPatc
         history_len=int(metadata.get("history_len", 168)),
         future_steps=int(metadata.get("future_len", 24)),
     )
-    return BaselineCNNTransformerPatch(cfg)
+    return Part2HierarchicalSeq2Seq(cfg)
 
 
-def get_model(*args, **kwargs) -> BaselineCNNTransformerPatch:
+def get_model(*args, **kwargs) -> Part2HierarchicalSeq2Seq:
     """Support both evaluator and training calls.
 
     Evaluator style:
@@ -384,11 +467,16 @@ def get_model(*args, **kwargs) -> BaselineCNNTransformerPatch:
         d_model=kwargs.get("d_model", 256),
         num_heads=kwargs.get("num_heads", 8),
         num_layers=kwargs.get("num_layers", 4),
+        decoder_layers=kwargs.get("decoder_layers", 3),
         ff_dim=kwargs.get("ff_dim", 1024),
         dropout=kwargs.get("dropout", 0.1),
         cnn_hidden_dim=kwargs.get("cnn_hidden_dim", 64),
+        residual_blocks=kwargs.get("residual_blocks", 3),
+        spatial_layers=kwargs.get("spatial_layers", 2),
         patch_grid_h=kwargs.get("patch_grid_h", 10),
         patch_grid_w=kwargs.get("patch_grid_w", 10),
+        arch_variant=kwargs.get("arch_variant", "no_cnn"),
+        use_weather_stats=kwargs.get("use_weather_stats", True),
         crop_mode=kwargs.get("crop_mode", "new_england"),
         crop_y0=kwargs.get("crop_y0", 0),
         crop_y1=kwargs.get("crop_y1", 450),
@@ -397,4 +485,4 @@ def get_model(*args, **kwargs) -> BaselineCNNTransformerPatch:
         downsample_h=kwargs.get("downsample_h", 96),
         downsample_w=kwargs.get("downsample_w", 96),
     )
-    return BaselineCNNTransformerPatch(cfg)
+    return Part2HierarchicalSeq2Seq(cfg)

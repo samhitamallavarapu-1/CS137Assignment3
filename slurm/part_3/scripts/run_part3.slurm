@@ -26,10 +26,18 @@ nvidia-smi
 
 $PYTHON -c "import torch; print('torch:', torch.__version__); print('cuda available:', torch.cuda.is_available()); print('gpu count:', torch.cuda.device_count())"
 
-# TODO: Replace flags/entrypoint as your Part 3 track evolves.
+# Edit PART2_RUN to whichever Part 2 experiment you want to diagnose.
+PART2_RUN="outputs/part_2/part2_first_improved_3seed_no_cnn"
+
 $PYTHON code/part_3/run.py \
   --data-dir /cluster/tufts/c26sp1cs0137/data/assignment3_data \
+  --part2-run-dir "$PART2_RUN" \
   --output-dir outputs/part_3 \
-  --track a
+  --checkpoint best \
+  --split val \
+  --max-samples 256 \
+  --batch-size 8 \
+  --num-workers 2 \
+  --compute-zone-grad-maps
 
 echo "Finished at $(date)"

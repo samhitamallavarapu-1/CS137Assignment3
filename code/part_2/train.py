@@ -934,7 +934,7 @@ def main() -> None:
 
     if resume_path is not None:
         print(f"Resuming from checkpoint: {resume_path}")
-        ckpt = torch.load(resume_path, map_location="cpu")
+        ckpt = torch.load(resume_path, map_location="cpu", weights_only=False)
         model.load_state_dict(ckpt["model_state"])
         if "optimizer_state" in ckpt and ckpt["optimizer_state"] is not None:
             optimizer.load_state_dict(ckpt["optimizer_state"])

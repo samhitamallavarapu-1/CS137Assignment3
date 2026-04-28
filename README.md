@@ -108,7 +108,7 @@ sbatch slurm/part_2/scripts/run_part2.slurm
 
 ## Part 3
 
-Part 3 extracts and analyzes attribution maps from a trained Part 2 run.
+Part 3 extracts and analyzes attribution maps from a trained Part 1 run.
 
 Primary script:
 - `code/part_3/run.py`
@@ -118,7 +118,7 @@ Typical run:
 ```bash
 python code/part_3/run.py \
   --data-dir /cluster/tufts/c26sp1cs0137/data/assignment3_data \
-  --part2-run-dir outputs/part_2/<run_name> \
+  --part1-run-dir outputs/part_1/<run_name> \
   --output-dir outputs/part_3 \
   --checkpoint best \
   --split val \

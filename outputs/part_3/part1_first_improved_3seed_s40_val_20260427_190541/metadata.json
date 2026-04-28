@@ -1,0 +1,28 @@
+{
+  "created_at_local": "2026-04-27T19:05:43",
+  "part1_run_dir": "/cluster/tufts/c26sp1cs0137/smalla01/CS137Assignment3/outputs/part_1/part1_first_improved_3seed_s40",
+  "checkpoint": "/cluster/tufts/c26sp1cs0137/smalla01/CS137Assignment3/outputs/part_1/part1_first_improved_3seed_s40/checkpoints/best.pt",
+  "split": "val",
+  "num_samples": 256,
+  "batch_size": 8,
+  "device": "cuda",
+  "future_len": 24,
+  "history_len": 168,
+  "patch_grid_h": 10,
+  "patch_grid_w": 10,
+  "zone_names": [
+    "ME",
+    "NH",
+    "VT",
+    "CT",
+    "RI",
+    "SEMA",
+    "WCMA",
+    "NEMA_BOST"
+  ],
+  "compute_zone_grad_maps": true,
+  "notes": [
+    "future_to_spatial is composed from transformer self-attention-derived future->history and history->patch maps.",
+    "zone_grad_spatial reweights attention with per-zone gradient sensitivity to encoded history tokens."
+  ]
+}

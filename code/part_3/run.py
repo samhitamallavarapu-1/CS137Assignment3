@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Part 3 diagnostics for Part 2 model attention and zone attribution."""
+"""Part 3 diagnostics for Part 1 model attention and zone attribution."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ from torch.utils.data import DataLoader
 
 THIS_FILE = Path(__file__).resolve()
 REPO_ROOT = THIS_FILE.parents[2]
-PART2_DIR = REPO_ROOT / "code" / "part_2"
-if str(PART2_DIR) not in sys.path:
-    sys.path.insert(0, str(PART2_DIR))
+PART1_DIR = REPO_ROOT / "code" / "part_1"
+if str(PART1_DIR) not in sys.path:
+    sys.path.insert(0, str(PART1_DIR))
 
 from model import get_model  # type: ignore  # noqa: E402
 from train import (  # type: ignore  # noqa: E402
@@ -150,16 +150,11 @@ def _build_model(cfg: Dict, norm: Dict, checkpoint_path: Path, device: torch.dev
         d_model=int(cfg["d_model"]),
         num_heads=int(cfg["num_heads"]),
         num_layers=int(cfg["num_layers"]),
-        decoder_layers=int(cfg["decoder_layers"]),
-        spatial_layers=int(cfg["spatial_layers"]),
         ff_dim=int(cfg["ff_dim"]),
         dropout=float(cfg["dropout"]),
         cnn_hidden_dim=int(cfg["cnn_hidden_dim"]),
-        residual_blocks=int(cfg["residual_blocks"]),
         patch_grid_h=int(cfg["patch_grid_h"]),
         patch_grid_w=int(cfg["patch_grid_w"]),
-        arch_variant=str(cfg["arch_variant"]),
-        use_weather_stats=bool(cfg["use_weather_stats"]),
         crop_mode=str(cfg["crop_mode"]),
         crop_y0=int(cfg["crop_y0"]),
         crop_y1=int(cfg["crop_y1"]),
@@ -185,9 +180,9 @@ def _make_output_dir(base_output_dir: Path, run_name: str) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Extract Part 2 future->spatial attention maps for Part 3 diagnosis")
+    parser = argparse.ArgumentParser(description="Extract Part 1 future->spatial attention maps for Part 3 diagnosis")
     parser.add_argument("--data-dir", type=Path, required=True)
-    parser.add_argument("--part2-run-dir", type=Path, required=True, help="Path like outputs/part_2/<run_name>")
+    parser.add_argument("--part1-run-dir", type=Path, required=True, help="Path like outputs/part_1/<run_name>")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/part_3"))
     parser.add_argument("--checkpoint", type=str, default="best", help="'best', 'last', or explicit .pt path")
     parser.add_argument("--split", choices=["train", "val", "all"], default="val")
@@ -204,12 +199,12 @@ def main() -> None:
     args = parser.parse_args()
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
-    part2_run_dir = args.part2_run_dir.resolve()
-    ckpt_path = _resolve_checkpoint(part2_run_dir, args.checkpoint)
+    part1_run_dir = args.part1_run_dir.resolve()
+    ckpt_path = _resolve_checkpoint(part1_run_dir, args.checkpoint)
 
     ds, aligned_df, zone_cols, cfg, norm = _build_dataset(
         data_dir=args.data_dir,
-        run_dir=part2_run_dir,
+        run_dir=part1_run_dir,
         split=args.split,
         max_samples=args.max_samples,
         seed=args.seed,
@@ -250,7 +245,7 @@ def main() -> None:
 
     print("=" * 80)
     print("Part 3 attention extraction")
-    print(f"part2_run_dir: {part2_run_dir}")
+    print(f"part1_run_dir: {part1_run_dir}")
     print(f"checkpoint: {ckpt_path}")
     print(f"split={args.split} samples={len(ds)} batch_size={args.batch_size} device={device}")
     print("=" * 80)
@@ -292,7 +287,7 @@ def main() -> None:
         zone_spatial = torch.cat(all_zone_spatial, dim=0)  # [N, Tf, Z, P]
         zone_spatial_2d = reshape_patch_maps(zone_spatial, patch_grid_h, patch_grid_w)
 
-    run_name = f"{part2_run_dir.name}_{args.split}"
+    run_name = f"{part1_run_dir.name}_{args.split}"
     out_dir = _make_output_dir(args.output_dir, run_name)
 
     npz_payload = {
@@ -340,7 +335,7 @@ def main() -> None:
         json.dump(
             {
                 "created_at_local": datetime.now().isoformat(timespec="seconds"),
-                "part2_run_dir": str(part2_run_dir),
+                "part1_run_dir": str(part1_run_dir),
                 "checkpoint": str(ckpt_path),
                 "split": args.split,
                 "num_samples": int(len(ds)),
@@ -353,8 +348,8 @@ def main() -> None:
                 "zone_names": zone_cols,
                 "compute_zone_grad_maps": bool(args.compute_zone_grad_maps),
                 "notes": [
-                    "future_to_spatial is composed from decoder cross-attention and hourly patch attention.",
-                    "zone_grad_spatial reweights attention with per-zone gradient sensitivity to encoder memory.",
+                    "future_to_spatial is composed from transformer self-attention-derived future->history and history->patch maps.",
+                    "zone_grad_spatial reweights attention with per-zone gradient sensitivity to encoded history tokens.",
                 ],
             },
             f,

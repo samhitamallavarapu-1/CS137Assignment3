@@ -1,9 +1,9 @@
 # Part 3: Attention-Based Geographic Diagnosis
 
-This module extracts spatial attribution maps from the Part 2 model by combining:
+This module extracts spatial attribution maps from the Part 1 model by combining:
 
-- decoder cross-attention (`future token -> history hour token`)
-- hourly summarizer attention (`history hour token -> spatial patch token`)
+- transformer self-attention (`future tab token -> history tab token`)
+- transformer self-attention (`history tab token -> history spatial patch token`)
 
 and composing them into:
 
@@ -13,7 +13,7 @@ It also supports an optional zone-conditioned diagnostic map using gradient sens
 
 ## What gets saved
 
-Running `run.py` writes a new folder under `outputs/part_3/<part2_run>_<split>_<timestamp>/` with:
+Running `run.py` writes a new folder under `outputs/part_3/<part1_run>_<split>_<timestamp>/` with:
 
 - `attention_maps.npz`
   - `future_to_history`: `[N, Tf, Th]`
@@ -30,7 +30,7 @@ Running `run.py` writes a new folder under `outputs/part_3/<part2_run>_<split>_<
 ```bash
 python code/part_3/run.py \
   --data-dir /cluster/tufts/c26sp1cs0137/data/assignment3_data \
-  --part2-run-dir outputs/part_2/part2_first_improved_3seed_no_cnn \
+  --part1-run-dir outputs/part_1/part1_first_improved_3seed_s40 \
   --output-dir outputs/part_3 \
   --checkpoint best \
   --split val \
@@ -58,7 +58,7 @@ Compute gradient saliency maps on weather input for each forecast hour and zone:
 ```bash
 python code/part_3/diagnostic_saliency.py \
   --data-dir /cluster/tufts/c26sp1cs0137/data/assignment3_data \
-  --part2-run-dir outputs/part_2/part2_first_improved_3seed_no_cnn \
+  --part1-run-dir outputs/part_1/part1_first_improved_3seed_s40 \
   --output-dir outputs/part_3 \
   --checkpoint best \
   --split val \
@@ -74,12 +74,12 @@ Outputs include:
 
 ## Diagnostic 4: Attention-Layer Ablation
 
-Compare early vs late decoder-layer maps and quantify prediction shifts when dropping/isolating decoder cross-attention layers:
+Compare early vs late transformer-layer maps and quantify prediction shifts when dropping/isolating transformer layers:
 
 ```bash
 python code/part_3/diagnostic_layer_ablation.py \
   --data-dir /cluster/tufts/c26sp1cs0137/data/assignment3_data \
-  --part2-run-dir outputs/part_2/part2_first_improved_3seed_no_cnn \
+  --part1-run-dir outputs/part_1/part1_first_improved_3seed_s40 \
   --output-dir outputs/part_3 \
   --checkpoint best \
   --split val \

@@ -16,16 +16,16 @@ from torch.utils.data import DataLoader
 
 from attention_tools import (
     extract_layerwise_future_to_spatial_batch,
-    predict_with_cross_attention_mask,
+    predict_with_layer_mask,
     reshape_patch_maps,
 )
 from run import _build_dataset, _build_model, _make_output_dir, _resolve_checkpoint
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compare decoder-layer attention maps and run cross-attention ablations")
+    parser = argparse.ArgumentParser(description="Compare transformer-layer attention maps and run layer-mask ablations")
     parser.add_argument("--data-dir", type=Path, required=True)
-    parser.add_argument("--part2-run-dir", type=Path, required=True)
+    parser.add_argument("--part1-run-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/part_3"))
     parser.add_argument("--checkpoint", type=str, default="best")
     parser.add_argument("--split", choices=["train", "val", "all"], default="val")
@@ -39,12 +39,12 @@ def main() -> None:
     args = parser.parse_args()
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
-    part2_run_dir = args.part2_run_dir.resolve()
-    ckpt_path = _resolve_checkpoint(part2_run_dir, args.checkpoint)
+    part1_run_dir = args.part1_run_dir.resolve()
+    ckpt_path = _resolve_checkpoint(part1_run_dir, args.checkpoint)
 
     ds, _, zone_cols, cfg, norm = _build_dataset(
         data_dir=args.data_dir,
-        run_dir=part2_run_dir,
+        run_dir=part1_run_dir,
         split=args.split,
         max_samples=args.max_samples,
         seed=args.seed,
@@ -55,7 +55,7 @@ def main() -> None:
 
     model = _build_model(cfg=cfg, norm=norm, checkpoint_path=ckpt_path, device=device)
     model.eval()
-    num_layers = len(model.temporal_decoder.layers)
+    num_layers = len(model.transformer.layers)
     patch_h = int(cfg["patch_grid_h"])
     patch_w = int(cfg["patch_grid_w"])
 
@@ -79,7 +79,7 @@ def main() -> None:
 
     print("=" * 80)
     print("Part 3 Diagnostic 4: layer ablation")
-    print(f"part2_run_dir: {part2_run_dir}")
+    print(f"part1_run_dir: {part1_run_dir}")
     print(f"checkpoint: {ckpt_path}")
     print(f"split={args.split} samples={len(ds)} batch_size={args.batch_size} device={device}")
     print("=" * 80)
@@ -102,7 +102,7 @@ def main() -> None:
             )  # [L,B,Tf,P]
             layer_maps_all.append(layer_maps.detach().cpu())
 
-            pred_base = predict_with_cross_attention_mask(
+            pred_base = predict_with_layer_mask(
                 model=model,
                 hist_weather=hist_weather,
                 hist_demand=hist_demand,
@@ -116,7 +116,7 @@ def main() -> None:
             for li in range(num_layers):
                 active_drop: Set[int] = set(range(num_layers))
                 active_drop.discard(li)
-                pred_drop = predict_with_cross_attention_mask(
+                pred_drop = predict_with_layer_mask(
                     model=model,
                     hist_weather=hist_weather,
                     hist_demand=hist_demand,
@@ -125,7 +125,7 @@ def main() -> None:
                     fut_calendar=fut_calendar,
                     active_layers=active_drop,
                 )
-                pred_only = predict_with_cross_attention_mask(
+                pred_only = predict_with_layer_mask(
                     model=model,
                     hist_weather=hist_weather,
                     hist_demand=hist_demand,
@@ -152,7 +152,7 @@ def main() -> None:
         d = np.abs(mean_layer_map[li + 1] - mean_layer_map[li]).mean()
         layer_l1_drift.append(float(d))
 
-    run_name = f"{part2_run_dir.name}_{args.split}_diag4_layer_ablation"
+    run_name = f"{part1_run_dir.name}_{args.split}_diag4_layer_ablation"
     out_dir = _make_output_dir(args.output_dir, run_name)
 
     np.savez_compressed(
@@ -184,16 +184,16 @@ def main() -> None:
             {
                 "created_at_local": datetime.now().isoformat(timespec="seconds"),
                 "diagnostic": "4_attention_layer_ablation",
-                "part2_run_dir": str(part2_run_dir),
+                "part1_run_dir": str(part1_run_dir),
                 "checkpoint": str(ckpt_path),
                 "split": args.split,
                 "num_samples": int(layer_maps_2d.shape[1]),
-                "num_decoder_layers": num_layers,
+                "num_transformer_layers": num_layers,
                 "patch_grid_h": patch_h,
                 "patch_grid_w": patch_w,
                 "notes": [
-                    "drop_layer_mean_abs_pred_delta: remove one decoder cross-attention layer at a time.",
-                    "only_layer_mean_abs_pred_delta: keep exactly one decoder cross-attention layer active.",
+                    "drop_layer_mean_abs_pred_delta: remove one transformer layer at a time.",
+                    "only_layer_mean_abs_pred_delta: keep exactly one transformer layer active.",
                     "early_vs_late_delta: last-layer map minus first-layer map.",
                 ],
             },

@@ -26,12 +26,12 @@ nvidia-smi
 
 $PYTHON -c "import torch; print('torch:', torch.__version__); print('cuda available:', torch.cuda.is_available()); print('gpu count:', torch.cuda.device_count())"
 
-# Edit PART2_RUN to whichever Part 2 experiment you want to diagnose.
-PART2_RUN="outputs/part_2/part2_first_improved_3seed_no_cnn"
+# Edit PART1_RUN to whichever Part 1 experiment you want to diagnose.
+PART1_RUN="outputs/part_1/part1_first_improved_3seed_s40"
 
 $PYTHON code/part_3/run.py \
   --data-dir /cluster/tufts/c26sp1cs0137/data/assignment3_data \
-  --part2-run-dir "$PART2_RUN" \
+  --part1-run-dir "$PART1_RUN" \
   --output-dir outputs/part_3 \
   --checkpoint best \
   --split val \

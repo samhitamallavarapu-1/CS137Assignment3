@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Diagnostic 1: saliency maps on weather input for Part 2 model outputs."""
+"""Diagnostic 1: saliency maps on weather input for Part 1 model outputs."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _pool_to_patch_grid(x: torch.Tensor, patch_h: int, patch_w: int) -> torch.Te
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compute weather-input saliency maps for each forecast hour and zone")
     parser.add_argument("--data-dir", type=Path, required=True)
-    parser.add_argument("--part2-run-dir", type=Path, required=True)
+    parser.add_argument("--part1-run-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/part_3"))
     parser.add_argument("--checkpoint", type=str, default="best")
     parser.add_argument("--split", choices=["train", "val", "all"], default="val")
@@ -40,12 +40,12 @@ def main() -> None:
     args = parser.parse_args()
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
-    part2_run_dir = args.part2_run_dir.resolve()
-    ckpt_path = _resolve_checkpoint(part2_run_dir, args.checkpoint)
+    part1_run_dir = args.part1_run_dir.resolve()
+    ckpt_path = _resolve_checkpoint(part1_run_dir, args.checkpoint)
 
     ds, _, zone_cols, cfg, norm = _build_dataset(
         data_dir=args.data_dir,
-        run_dir=part2_run_dir,
+        run_dir=part1_run_dir,
         split=args.split,
         max_samples=args.max_samples,
         seed=args.seed,
@@ -77,7 +77,7 @@ def main() -> None:
 
     print("=" * 80)
     print("Part 3 Diagnostic 1: weather saliency maps")
-    print(f"part2_run_dir: {part2_run_dir}")
+    print(f"part1_run_dir: {part1_run_dir}")
     print(f"checkpoint: {ckpt_path}")
     print(f"split={args.split} samples={len(ds)} batch_size={args.batch_size} device={device}")
     print("=" * 80)
@@ -117,7 +117,7 @@ def main() -> None:
     hist_saliency = torch.cat(hist_saliency_all, dim=0).numpy()  # [N,Tf,Z,Ph,Pw]
     fut_saliency = torch.cat(fut_saliency_all, dim=0).numpy()  # [N,Tf,Z,Ph,Pw]
 
-    run_name = f"{part2_run_dir.name}_{args.split}_diag1_saliency"
+    run_name = f"{part1_run_dir.name}_{args.split}_diag1_saliency"
     out_dir = _make_output_dir(args.output_dir, run_name)
 
     np.savez_compressed(
@@ -151,7 +151,7 @@ def main() -> None:
             {
                 "created_at_local": datetime.now().isoformat(timespec="seconds"),
                 "diagnostic": "1_saliency_maps",
-                "part2_run_dir": str(part2_run_dir),
+                "part1_run_dir": str(part1_run_dir),
                 "checkpoint": str(ckpt_path),
                 "split": args.split,
                 "num_samples": int(hist_saliency.shape[0]),

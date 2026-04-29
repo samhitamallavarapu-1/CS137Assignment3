@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560">
+<rect x="0" y="0" width="100%" height="100%" fill="white"/>
+<text x="500.0" y="34" text-anchor="middle" font-size="24" font-family="Arial">Training vs Validation Loss</text>
+<line x1="90" y1="490.00" x2="970" y2="490.00" stroke="#e5e7eb"/>
+<text x="80" y="494.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">0.0365</text>
+<line x1="90" y1="404.00" x2="970" y2="404.00" stroke="#e5e7eb"/>
+<text x="80" y="408.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">0.0925</text>
+<line x1="90" y1="318.00" x2="970" y2="318.00" stroke="#e5e7eb"/>
+<text x="80" y="322.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">0.149</text>
+<line x1="90" y1="232.00" x2="970" y2="232.00" stroke="#e5e7eb"/>
+<text x="80" y="236.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">0.205</text>
+<line x1="90" y1="146.00" x2="970" y2="146.00" stroke="#e5e7eb"/>
+<text x="80" y="150.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">0.261</text>
+<line x1="90" y1="60.00" x2="970" y2="60.00" stroke="#e5e7eb"/>
+<text x="80" y="64.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">0.317</text>
+<line x1="90.00" y1="60" x2="90.00" y2="490" stroke="#f3f4f6"/>
+<text x="90.00" y="514" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">1</text>
+<line x1="182.63" y1="60" x2="182.63" y2="490" stroke="#f3f4f6"/>
+<text x="182.63" y="514" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">3</text>
+<line x1="275.26" y1="60" x2="275.26" y2="490" stroke="#f3f4f6"/>
+<text x="275.26" y="514" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">5</text>
+<line x1="367.89" y1="60" x2="367.89" y2="490" stroke="#f3f4f6"/>
+<text x="367.89" y="514" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">7</text>
+<line x1="460.53" y1="60" x2="460.53" y2="490" stroke="#f3f4f6"/>
+<text x="460.53" y="514" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">9</text>
+<line x1="599.47" y1="60" x2="599.47" y2="490" stroke="#f3f4f6"/>
+<text x="599.47" y="514" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">12</text>
+<line x1="692.11" y1="60" x2="692.11" y2="490" stroke="#f3f4f6"/>
+<text x="692.11" y="514" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">14</text>
+<line x1="784.74" y1="60" x2="784.74" y2="490" stroke="#f3f4f6"/>
+<text x="784.74" y="514" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">16</text>
+<line x1="877.37" y1="60" x2="877.37" y2="490" stroke="#f3f4f6"/>
+<text x="877.37" y="514" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">18</text>
+<line x1="970.00" y1="60" x2="970.00" y2="490" stroke="#f3f4f6"/>
+<text x="970.00" y="514" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">20</text>
+<line x1="90" y1="490" x2="970" y2="490" stroke="#111827" stroke-width="1.5"/>
+<line x1="90" y1="60" x2="90" y2="490" stroke="#111827" stroke-width="1.5"/>
+<text x="530.0" y="540" text-anchor="middle" font-size="14" font-family="Arial">Epoch</text>
+<text x="24" y="275.0" transform="rotate(-90 24 275.0)" text-anchor="middle" font-size="14" font-family="Arial">Loss</text>
+<polyline fill="none" stroke="#1f77b4" stroke-width="2.5" points="90.00,89.66 136.32,264.93 182.63,332.03 228.95,365.99 275.26,386.96 321.58,401.33 367.89,412.24 414.21,421.62 460.53,429.18 506.84,435.65 553.16,440.67 599.47,445.02 645.79,449.09 692.11,452.22 738.42,455.71 784.74,457.76 831.05,459.23 877.37,460.18 923.68,459.98 970.00,460.34"/>
+<polyline fill="none" stroke="#d62728" stroke-width="2.5" points="90.00,169.51 136.32,207.50 182.63,248.99 228.95,255.83 275.26,257.02 321.58,269.39 367.89,283.70 414.21,282.00 460.53,278.50 506.84,285.68 553.16,289.72 599.47,297.63 645.79,296.11 692.11,299.35 738.42,299.60 784.74,298.53 831.05,299.34 877.37,299.90 923.68,299.17 970.00,301.51"/>
+<rect x="780" y="50" width="190" height="68" fill="white" stroke="#d1d5db"/>
+<line x1="790" y1="68" x2="814" y2="68" stroke="#1f77b4" stroke-width="3"/>
+<text x="822" y="72" font-size="13" font-family="Arial" fill="#111827">Train Loss</text>
+<line x1="790" y1="96" x2="814" y2="96" stroke="#d62728" stroke-width="3"/>
+<text x="822" y="100" font-size="13" font-family="Arial" fill="#111827">Val Loss</text>
+</svg>

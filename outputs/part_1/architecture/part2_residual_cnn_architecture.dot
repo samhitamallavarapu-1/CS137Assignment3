@@ -1,0 +1,60 @@
+digraph Part2ResidualCNN {
+  rankdir=TB;
+  splines=ortho;
+  nodesep=0.45;
+  ranksep=0.7;
+  fontname="Helvetica";
+  bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, color="#1f3b57", penwidth=1.2];
+  edge [color="#1f3b57", penwidth=1.1, arrowsize=0.7];
+
+  hw [label="History weather\n[B,Th,Cw,H,W]", fillcolor="#e8f2ff"];
+  fw [label="Future weather\n[B,Tf,Cw,H,W]", fillcolor="#e8f2ff"];
+  hd [label="History demand\n[B,Th,Z]", fillcolor="#fff5e6"];
+  cal [label="Calendar features\n(hist and future)\n[B,T,7]", fillcolor="#fff5e6"];
+
+  tok [label="WeatherTokenizer (variant=residual_cnn)\nConv5x5 s=2: Cw->h\nResidualConvBlock x N\nConv3x3 s=2: h->2h\nAdaptiveAvgPool -> (10,10)\n1x1 Conv(2h -> d_model)\nOutput: [B,T,100,d]", fillcolor="#dff3e4"];
+  chunk [shape=note, fillcolor="#ffffff", color="#666666", fontcolor="#333333", label="If tokenizer_chunk_steps > 0:\nprocess time dimension in chunks\n(to reduce memory for residual_cnn)"];
+  sp [label="Add spatial pos embed\n[1,1,100,d]", fillcolor="#f1eaff"];
+
+  sum [label="HourlyWeatherSummarizer\nSpatial TransformerEncoder (L=spatial_layers)\nLearned query + MultiHeadAttn\nLayerNorm\nOutput hour token: [B,T,d]", fillcolor="#eaf4ff"];
+
+  stats [label="Weather stats branch (if enabled)\nmean/std/min/max over H,W\n[B,T,4*Cw] -> Linear(4*Cw->d)\nAdded to hour token", fillcolor="#edf6ff"];
+
+  htab [label="Hist tab embed\nLinear(Z+7 -> d)\n[B,Th,d]", fillcolor="#ffe8cc"];
+  ftab [label="Future tab embed\nmasked demand [Z] + calendar\nLinear(Z+7 -> d)\n[B,Tf,d]", fillcolor="#ffe8cc"];
+
+  encin [label="Encoder input\nhist_hour + hist_tab\n+ temporal PE + dropout\n[B,Th,d]", fillcolor="#fcefee"];
+  decin [label="Decoder input\nfut_hour + fut_tab\n+ temporal PE + dropout\n[B,Tf,d]", fillcolor="#fcefee"];
+
+  enc [label="Temporal TransformerEncoder\nL=num_layers, heads=num_heads\nff=ff_dim, GELU\nOutput memory [B,Th,d]", fillcolor="#fcefee"];
+  dec [label="Temporal TransformerDecoder\nL=decoder_layers\nCross-attend to memory\nOutput decoded [B,Tf,d]", fillcolor="#fcefee"];
+
+  head [label="Prediction head\nLinear(d->d)+GELU+Dropout\nLinear(d->Z)\nOutput: [B,Tf,Z]", fillcolor="#e5ffe9"];
+
+  hw -> tok;
+  fw -> tok;
+  tok -> sp -> sum;
+  tok -> chunk [style=dashed, color="#666666"];
+  hw -> stats;
+  fw -> stats;
+  sum -> encin;
+  sum -> decin;
+  stats -> encin;
+  stats -> decin;
+
+  hd -> htab -> encin;
+  cal -> htab;
+  cal -> ftab;
+  ftab -> decin;
+
+  encin -> enc;
+  enc -> dec;
+  decin -> dec;
+  dec -> head;
+
+  label="Part 2 Hierarchical Seq2Seq - residual_cnn variant (from code/part_2/model.py)";
+  labelloc=t;
+  fontsize=18;
+  fontname="Helvetica-Bold";
+}

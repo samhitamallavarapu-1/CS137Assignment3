@@ -1,0 +1,45 @@
+{
+  "run_dir": "/cluster/tufts/c26sp1cs0137/smalla01/CS137Assignment3/outputs/part_1/part1_first_improved_3seed_s40",
+  "checkpoint": "/cluster/tufts/c26sp1cs0137/smalla01/CS137Assignment3/outputs/part_1/part1_first_improved_3seed_s40/checkpoints/best.pt",
+  "eval_year": 2022,
+  "n_days": 30,
+  "num_samples": 30,
+  "zones": [
+    "ME",
+    "NH",
+    "VT",
+    "CT",
+    "RI",
+    "SEMA",
+    "WCMA",
+    "NEMA_BOST"
+  ],
+  "future_len": 24,
+  "patch_grid": [
+    10,
+    10
+  ],
+  "attention_tensor_shape": [
+    30,
+    8,
+    24,
+    10,
+    10
+  ],
+  "weather_tensor_shape": [
+    30,
+    24,
+    7,
+    10,
+    10
+  ],
+  "has_matplotlib": true,
+  "has_imageio": true,
+  "has_pyproj": false,
+  "attention_layer_used": 0,
+  "notes": [
+    "This model's future query token stream is shared before zone projection.",
+    "Therefore raw future->spatial attention is identical across zones for a given sample/hour.",
+    "Zone axis is preserved without averaging by replicating shared maps per zone as requested."
+  ]
+}

@@ -1,2 +1,0 @@
-seed,run_name,best_epoch,best_val_loss,best_val_mae,best_val_mape,last_epoch,last_val_loss,last_val_mae,last_val_mape
-40,part1_first_improved_3seed_s40,20,0.1593477737867167,51.72621077267244,3.407869686360483,20,0.1593477737867167,51.72621077267244,3.407869686360483

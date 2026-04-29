@@ -48,6 +48,7 @@ class ModelConfig:
         crop_x1: int = 449,
         downsample_h: int = 96,
         downsample_w: int = 96,
+        tokenizer_chunk_steps: int = 0,
     ) -> None:
         self.weather_channels = int(weather_channels)
         self.num_zones = int(num_zones)
@@ -74,6 +75,7 @@ class ModelConfig:
         self.crop_x1 = int(crop_x1)
         self.downsample_h = int(downsample_h)
         self.downsample_w = int(downsample_w)
+        self.tokenizer_chunk_steps = int(tokenizer_chunk_steps)
 
 
 class ResidualConvBlock(nn.Module):
@@ -105,11 +107,13 @@ class WeatherTokenizer(nn.Module):
         patch_grid_w: int,
         variant: str,
         residual_blocks: int,
+        chunk_steps: int = 0,
     ) -> None:
         super().__init__()
         self.patch_grid_h = patch_grid_h
         self.patch_grid_w = patch_grid_w
         self.variant = variant
+        self.chunk_steps = int(chunk_steps)
 
         if variant == "residual_cnn":
             layers = [
@@ -141,6 +145,19 @@ class WeatherTokenizer(nn.Module):
         if weather.ndim != 5:
             raise ValueError(f"weather must be [B,T,C,H,W], got {tuple(weather.shape)}")
         bsz, steps, _, _, _ = weather.shape
+        if self.chunk_steps > 0 and self.variant == "residual_cnn":
+            tokens = []
+            for s0 in range(0, steps, self.chunk_steps):
+                s1 = min(steps, s0 + self.chunk_steps)
+                x = weather[:, s0:s1].reshape(bsz * (s1 - s0), *weather.shape[2:])
+                x = self.backbone(x)
+                x = self.pool(x)
+                x = self.proj(x)
+                x = x.flatten(2).transpose(1, 2)
+                x = x.reshape(bsz, s1 - s0, self.patch_grid_h * self.patch_grid_w, -1)
+                tokens.append(x)
+            return torch.cat(tokens, dim=1)
+
         x = weather.reshape(bsz * steps, *weather.shape[2:])
         x = self.backbone(x)
         x = self.pool(x)
@@ -194,6 +211,7 @@ class Part2HierarchicalSeq2Seq(nn.Module):
             patch_grid_w=config.patch_grid_w,
             variant=config.arch_variant,
             residual_blocks=config.residual_blocks,
+            chunk_steps=config.tokenizer_chunk_steps,
         )
         self.num_patches = config.patch_grid_h * config.patch_grid_w
 
@@ -553,5 +571,6 @@ def get_model(*args, **kwargs) -> Part2HierarchicalSeq2Seq:
         crop_x1=kwargs.get("crop_x1", 449),
         downsample_h=kwargs.get("downsample_h", 96),
         downsample_w=kwargs.get("downsample_w", 96),
+        tokenizer_chunk_steps=kwargs.get("tokenizer_chunk_steps", 4),
     )
     return Part2HierarchicalSeq2Seq(cfg)

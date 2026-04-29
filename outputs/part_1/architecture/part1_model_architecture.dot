@@ -1,0 +1,44 @@
+digraph Part1Model {
+  rankdir=TB;
+  splines=ortho;
+  nodesep=0.45;
+  ranksep=0.7;
+  fontname="Helvetica";
+  bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, color="#1f3b57", penwidth=1.2];
+  edge [color="#1f3b57", penwidth=1.1, arrowsize=0.7];
+
+  hw [label="History weather\n[B, Th, Cw, H, W]", fillcolor="#e8f2ff"];
+  fw [label="Future weather\n[B, Tf, Cw, H, W]", fillcolor="#e8f2ff"];
+  hd [label="History demand\n[B, Th, Z]", fillcolor="#fff5e6"];
+  cal [label="Calendar features\n(hist and future)\n[B, T, 7]", fillcolor="#fff5e6"];
+
+  tok [label="WeatherPatchTokenizer (shared)\n4x ConvBlock(stride=2)\nAdaptiveAvgPool -> 10x10\n1x1 Conv -> d_model\nOutput: [B, T, 100, d_model]", fillcolor="#dff3e4"];
+  sp [label="Add spatial pos embed\n[1,1,100,d_model]", fillcolor="#f1eaff"];
+
+  hist_tab [label="History tab token\nLinear(Z+7 -> d_model)\n[B, Th, 1, d_model]", fillcolor="#ffe8cc"];
+  fut_tab [label="Future tab token\nlearned demand mask [Z]\n+ calendar -> Linear\n[B, Tf, 1, d_model]", fillcolor="#ffe8cc"];
+
+  group [label="Group tokens per time step\nHist: concat(spatial, tab) -> [B,Th,101,d]\nFut: concat(spatial, tab) -> [B,Tf,101,d]\nConcat time -> [B,Th+Tf,101,d]", fillcolor="#eaf4ff"];
+  temp [label="Add sinusoidal temporal encoding\nReshape to sequence\n[B,(Th+Tf)*101,d]\nDropout", fillcolor="#eaf4ff"];
+
+  enc [label="TransformerEncoder\nL=4, heads=8, ff=1024\nGELU, norm_first=True\nOutput: [B,S,d]", fillcolor="#fcefee"];
+  pick [label="Select future tab positions\nindex = t*101 + 100\n[B,Tf,d]", fillcolor="#edf6ff"];
+  head [label="Prediction head\nLinear(d->d)+GELU+Dropout\nLinear(d->Z)\nOutput: [B,Tf,Z]", fillcolor="#e5ffe9"];
+
+  hw -> tok;
+  fw -> tok;
+  tok -> sp;
+  hd -> hist_tab;
+  cal -> hist_tab;
+  cal -> fut_tab;
+  sp -> group;
+  hist_tab -> group;
+  fut_tab -> group;
+  group -> temp -> enc -> pick -> head;
+
+  label="Part 1 BaselineCNNTransformerPatch (from code/part_1/model.py)";
+  labelloc=t;
+  fontsize=18;
+  fontname="Helvetica-Bold";
+}

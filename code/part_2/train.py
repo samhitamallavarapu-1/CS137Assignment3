@@ -657,6 +657,12 @@ def main() -> None:
     parser.add_argument("--arch-variant", choices=["no_cnn", "residual_cnn"], default="no_cnn")
     parser.add_argument("--use-weather-stats", action="store_true", default=True)
     parser.add_argument("--no-weather-stats", action="store_false", dest="use_weather_stats")
+    parser.add_argument(
+        "--tokenizer-chunk-steps",
+        type=int,
+        default=4,
+        help="Time-chunk size used inside residual_cnn tokenizer to reduce peak VRAM. 0 disables chunking.",
+    )
 
     # Optimization
     parser.add_argument("--epochs", type=int, default=80)
@@ -863,6 +869,7 @@ def main() -> None:
         crop_x1=args.crop_x1,
         downsample_h=args.downsample_h,
         downsample_w=args.downsample_w,
+        tokenizer_chunk_steps=args.tokenizer_chunk_steps,
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

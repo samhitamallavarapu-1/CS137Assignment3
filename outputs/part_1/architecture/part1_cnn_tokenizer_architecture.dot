@@ -1,0 +1,32 @@
+digraph CNNTokenizer {
+  rankdir=TB;
+  splines=ortho;
+  nodesep=0.5;
+  ranksep=0.8;
+  fontname="Helvetica";
+  bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, color="#1f3b57", penwidth=1.2];
+  edge [color="#1f3b57", penwidth=1.1, arrowsize=0.7];
+
+  in [label="Input weather\n[B,T,Cw,H,W]", fillcolor="#e8f2ff"];
+  rs [label="Reshape\n[B*T,Cw,H,W]", fillcolor="#f3f7ff"];
+
+  c1 [label="ConvBlock1\nConv3x3 s=2 p=1\nBN + GELU\nCw -> h", fillcolor="#dff3e4"];
+  c2 [label="ConvBlock2\nConv3x3 s=2 p=1\nBN + GELU\nh -> h", fillcolor="#dff3e4"];
+  c3 [label="ConvBlock3\nConv3x3 s=2 p=1\nBN + GELU\nh -> 2h", fillcolor="#dff3e4"];
+  c4 [label="ConvBlock4\nConv3x3 s=2 p=1\nBN + GELU\n2h -> 2h", fillcolor="#dff3e4"];
+
+  pool [label="AdaptiveAvgPool2d\n-> (gh, gw)\ndefault: 10x10", fillcolor="#fff5e6"];
+  proj [label="1x1 Conv\n2h -> d_model", fillcolor="#fff5e6"];
+  out [label="Flatten + transpose + reshape\n[B*T,d,gh,gw] -> [B*T,gh*gw,d]\n-> [B,T,gh*gw,d]\n(default: [B,T,100,d])", fillcolor="#eaf4ff"];
+
+  in -> rs -> c1 -> c2 -> c3 -> c4 -> pool -> proj -> out;
+
+  note [shape=note, fillcolor="#ffffff", color="#666666", fontcolor="#333333", label="Spatial downsample through conv stack: 16x\nbefore adaptive pooling to fixed patch grid"];
+  c4 -> note [style=dashed, color="#666666"];
+
+  label="Part 1 WeatherPatchTokenizer (from code/part_1/model.py)";
+  labelloc=t;
+  fontsize=18;
+  fontname="Helvetica-Bold";
+}

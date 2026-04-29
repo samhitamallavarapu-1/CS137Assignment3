@@ -2,8 +2,8 @@
 
 Code and experiment outputs for CS137 Assignment 3:
 1. Part 1 baseline forecasting model
-2. Part 2 architecture search / improved model
-3. Part 3 model diagnostics and attention analysis
+2. Part 2 architecture variants
+3. Part 3 post-hoc analysis (attention, saliency, feature importance)
 
 ## Repository layout
 
@@ -15,47 +15,48 @@ CS137Assignment3/
 │   │   ├── train.py
 │   │   ├── multi_seed.py
 │   │   ├── crop_sweep.py
-│   │   └── evaluate.py
+│   │   ├── evaluate.py
+│   │   └── analyze_attention.py
 │   ├── part_2/
 │   │   ├── model.py
 │   │   └── train.py
 │   └── part_3/
-│       ├── README.md
-│       ├── run.py
-│       ├── attention_tools.py
-│       ├── diagnostic_saliency.py
-│       ├── diagnostic_layer_ablation.py
-│       └── plot_maps.py
-├── outputs/
-│   ├── part_1/
-│   ├── part_2/
-│   └── part_3/
+│       ├── attention_spatial_analysis.py
+│       ├── saliency_feature_analysis.py
+│       └── feature_importance_only.py
 ├── slurm/
 │   ├── part_1/scripts/run_part1.slurm
 │   ├── part_2/scripts/run_part2.slurm
-│   └── part_3/scripts/run_part3.slurm
-└── main.pdf
+│   └── part_3/scripts/
+│       ├── run_attention_spatial_analysis.slurm
+│       ├── run_saliency_feature_analysis.slurm
+│       └── run_feature_importance_only.slurm
+├── outputs/
+├── main.pdf
+└── README.md
 ```
 
 ## Data location
 
-All training/diagnostic scripts expect:
+Training and analysis scripts expect:
 - `/cluster/tufts/c26sp1cs0137/data/assignment3_data/energy_demand_data`
 - `/cluster/tufts/c26sp1cs0137/data/assignment3_data/weather_data`
 
-Pass the parent directory as `--data-dir /cluster/tufts/c26sp1cs0137/data/assignment3_data`.
+Use parent directory:
+- `--data-dir /cluster/tufts/c26sp1cs0137/data/assignment3_data`
 
 ## Environment
 
-Provided Slurm scripts use:
-- `$HOME/.conda/envs/cs137-cnn/bin/python`
+SLURM scripts use:
+- `$HOME/.conda/envs/cs137-cnn/bin/python` (Part 1/2)
+- `conda activate cs137-cnn` (Part 3 scripts)
 
 ## Part 1
 
-Main training entrypoint:
+Entry point:
 - `code/part_1/train.py`
 
-Typical run:
+Typical local run:
 
 ```bash
 python code/part_1/train.py \
@@ -67,27 +68,28 @@ python code/part_1/train.py \
   --batch-size 16
 ```
 
-Part 1 Slurm:
+SLURM run:
 
 ```bash
 sbatch slurm/part_1/scripts/run_part1.slurm
 ```
 
-Useful utilities:
-- `code/part_1/multi_seed.py`: multi-seed launcher + summary
-- `code/part_1/crop_sweep.py`: crop/downsample visual diagnostics
-- `code/part_1/evaluate.py`: legacy evaluator-style script (path assumptions differ from current repo layout)
+Utilities:
+- `code/part_1/multi_seed.py`: launches multiple seeds and aggregates
+- `code/part_1/crop_sweep.py`: crop/downsample diagnostics
+- `code/part_1/evaluate.py`: evaluation helper
+- `code/part_1/analyze_attention.py`: additional analysis helper
 
 ## Part 2
 
-Main training entrypoint:
+Entry point:
 - `code/part_2/train.py`
 
-Supports both architecture variants:
-- `no_cnn`
-- `residual_cnn`
+Architecture options:
+- `--arch-variant no_cnn`
+- `--arch-variant residual_cnn`
 
-Typical run:
+Typical local run:
 
 ```bash
 python code/part_2/train.py \
@@ -100,7 +102,7 @@ python code/part_2/train.py \
   --batch-size 16
 ```
 
-Part 2 Slurm (runs both variants):
+SLURM run (executes both variants):
 
 ```bash
 sbatch slurm/part_2/scripts/run_part2.slurm
@@ -108,40 +110,44 @@ sbatch slurm/part_2/scripts/run_part2.slurm
 
 ## Part 3
 
-Part 3 extracts and analyzes attribution maps from a trained Part 1 run.
+Part 3 analyzes trained Part 1 checkpoints from `outputs/part_1/<run_name>`.
 
-Primary script:
-- `code/part_3/run.py`
+### 1) Attention spatial analysis
 
-Typical run:
+Script:
+- `code/part_3/attention_spatial_analysis.py`
 
-```bash
-python code/part_3/run.py \
-  --data-dir /cluster/tufts/c26sp1cs0137/data/assignment3_data \
-  --part1-run-dir outputs/part_1/<run_name> \
-  --output-dir outputs/part_3 \
-  --checkpoint best \
-  --split val \
-  --max-samples 256 \
-  --batch-size 8
-```
-
-Additional diagnostics:
-- `code/part_3/diagnostic_saliency.py`
-- `code/part_3/diagnostic_layer_ablation.py`
-- `code/part_3/plot_maps.py`
-
-Part 3 Slurm:
+SLURM:
 
 ```bash
-sbatch slurm/part_3/scripts/run_part3.slurm
+sbatch slurm/part_3/scripts/run_attention_spatial_analysis.slurm
 ```
 
-See `code/part_3/README.md` for artifact formats and plotting details.
+### 2) Saliency + feature importance
+
+Script:
+- `code/part_3/saliency_feature_analysis.py`
+
+SLURM:
+
+```bash
+sbatch slurm/part_3/scripts/run_saliency_feature_analysis.slurm
+```
+
+### 3) Feature importance only (batched, faster)
+
+Script:
+- `code/part_3/feature_importance_only.py`
+
+SLURM:
+
+```bash
+sbatch slurm/part_3/scripts/run_feature_importance_only.slurm
+```
 
 ## Output artifacts
 
-Each training run folder stores:
+Each Part 1/Part 2 training run directory includes:
 - `config.json`
 - `normalization.json`
 - `metrics.csv`
@@ -149,3 +155,5 @@ Each training run folder stores:
 - `val_indices.csv`
 - `checkpoints/best.pt`
 - `checkpoints/last.pt`
+
+Part 3 scripts write analysis outputs under the selected Part 1 run directory and/or `outputs/part_3`, depending on the script.

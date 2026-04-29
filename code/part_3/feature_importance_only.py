@@ -97,6 +97,18 @@ def main():
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--zones", type=str, default="ME,NH,VT,CT,RI,SEMA,WCMA,NEMA_BOST")
     parser.add_argument("--batch-anchors", type=int, default=8, help="Number of anchors per gradient batch")
+    parser.add_argument(
+        "--min-batch-anchors",
+        type=int,
+        default=1,
+        help="Minimum anchor batch size when shrinking after CUDA OOM",
+    )
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=Path("outputs/part_3"),
+        help="Base output directory for Part 3 artifacts",
+    )
     args = parser.parse_args()
 
     run_dir = args.run_dir.resolve()
@@ -166,7 +178,7 @@ def main():
     eval_year = None if str(args.eval_year).strip().lower() == "all" else int(args.eval_year)
     anchors = build_eval_anchors(energy_df, eval_year, history_len, future_len, args.n_days)
 
-    out_dir = run_dir / "saliency_analysis_part3"
+    out_dir = args.output_root.resolve() / run_dir.name / "feature_importance_only"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Using zones ({num_zones}): {zone_cols}")
@@ -178,57 +190,81 @@ def main():
     weather_cache: Dict[int, torch.Tensor] = {}
 
     batch_anchors = max(1, int(args.batch_anchors))
+    min_batch_anchors = max(1, int(args.min_batch_anchors))
     total = len(anchors)
-    for start in range(0, total, batch_anchors):
-        chunk = anchors[start:start + batch_anchors]
+    start = 0
+    while start < total:
+        current_bs = min(batch_anchors, total - start)
+        chunk = anchors[start:start + current_bs]
         bsz = len(chunk)
 
-        hist_weather_list = []
-        fut_weather_list = []
-        hist_energy_list = []
-        fut_time_list = []
-        for t_idx in chunk:
-            hist_slice = slice(t_idx - history_len, t_idx)
-            fut_slice = slice(t_idx, t_idx + future_len)
-            hist_hours = all_hours[hist_slice]
-            fut_hours = all_hours[fut_slice]
-            hist_weather_list.append(torch.stack([load_weather_tensor(data_dir, int(h), weather_cache) for h in hist_hours]))
-            fut_weather_list.append(torch.stack([load_weather_tensor(data_dir, int(h), weather_cache) for h in fut_hours]))
-            hist_energy_list.append(torch.from_numpy(energy_vals[hist_slice]))
-            fut_time_list.append(torch.from_numpy(fut_hours).to(torch.int64))
+        try:
+            hist_weather_list = []
+            fut_weather_list = []
+            hist_energy_list = []
+            fut_time_list = []
+            for t_idx in chunk:
+                hist_slice = slice(t_idx - history_len, t_idx)
+                fut_slice = slice(t_idx, t_idx + future_len)
+                hist_hours = all_hours[hist_slice]
+                fut_hours = all_hours[fut_slice]
+                hist_weather_list.append(torch.stack([load_weather_tensor(data_dir, int(h), weather_cache) for h in hist_hours]))
+                fut_weather_list.append(torch.stack([load_weather_tensor(data_dir, int(h), weather_cache) for h in fut_hours]))
+                hist_energy_list.append(torch.from_numpy(energy_vals[hist_slice]))
+                fut_time_list.append(torch.from_numpy(fut_hours).to(torch.int64))
 
-        hist_weather_raw = torch.stack(hist_weather_list, dim=0).to(device)
-        fut_weather_raw = torch.stack(fut_weather_list, dim=0).to(device)
-        hist_energy = torch.stack(hist_energy_list, dim=0).to(device)
-        fut_time = torch.stack(fut_time_list, dim=0).to(device)
+            hist_weather_raw = torch.stack(hist_weather_list, dim=0).to(device)
+            fut_weather_raw = torch.stack(fut_weather_list, dim=0).to(device)
+            hist_energy = torch.stack(hist_energy_list, dim=0).to(device)
+            fut_time = torch.stack(fut_time_list, dim=0).to(device)
 
-        hist_weather, hist_demand, hist_cal, fut_weather, fut_cal = model.adapt_inputs(
-            hist_weather_raw, hist_energy, fut_weather_raw, fut_time
-        )
-        hist_weather = hist_weather.detach().requires_grad_(True)
-        fut_weather = fut_weather.detach().requires_grad_(True)
+            hist_weather, hist_demand, hist_cal, fut_weather, fut_cal = model.adapt_inputs(
+                hist_weather_raw, hist_energy, fut_weather_raw, fut_time
+            )
+            hist_weather = hist_weather.detach().requires_grad_(True)
+            fut_weather = fut_weather.detach().requires_grad_(True)
 
-        preds = model(hist_weather, hist_demand, hist_cal, fut_weather, fut_cal)
+            preds = model(hist_weather, hist_demand, hist_cal, fut_weather, fut_cal)
 
-        # Zone-specific gradients with batched anchors for throughput.
-        for zi in range(num_zones):
-            model.zero_grad(set_to_none=True)
-            if hist_weather.grad is not None:
-                hist_weather.grad.zero_()
-            if fut_weather.grad is not None:
-                fut_weather.grad.zero_()
+            # Zone-specific gradients with batched anchors for throughput.
+            for zi in range(num_zones):
+                model.zero_grad(set_to_none=True)
+                if hist_weather.grad is not None:
+                    hist_weather.grad = None
+                if fut_weather.grad is not None:
+                    fut_weather.grad = None
 
-            scalar = preds[:, :, zi].sum()
-            scalar.backward(retain_graph=(zi < num_zones - 1))
+                scalar = preds[:, :, zi].sum()
+                scalar.backward(retain_graph=(zi < num_zones - 1))
 
-            g_hist = hist_weather.grad.detach().abs()
-            g_fut = fut_weather.grad.detach().abs()
-            channel_hist_importance[zi] += g_hist.mean(dim=(0, 1, 3, 4)).cpu().numpy()
-            channel_fut_importance[zi] += g_fut.mean(dim=(0, 1, 3, 4)).cpu().numpy()
+                g_hist = hist_weather.grad.detach().abs()
+                g_fut = fut_weather.grad.detach().abs()
+                channel_hist_importance[zi] += g_hist.mean(dim=(0, 1, 3, 4)).cpu().numpy()
+                channel_fut_importance[zi] += g_fut.mean(dim=(0, 1, 3, 4)).cpu().numpy()
 
-        done = start + bsz
-        if (done % 64 == 0) or (done == total):
-            print(f"[{done:>4}/{total}] processed through {energy_df['timestamp_utc'].iloc[int(chunk[-1])].date()}")
+            done = start + bsz
+            if (done % 64 == 0) or (done == total):
+                print(f"[{done:>4}/{total}] processed through {energy_df['timestamp_utc'].iloc[int(chunk[-1])].date()} (batch={bsz})")
+
+            del hist_weather_list, fut_weather_list, hist_energy_list, fut_time_list
+            del hist_weather_raw, fut_weather_raw, hist_energy, fut_time
+            del hist_weather, hist_demand, hist_cal, fut_weather, fut_cal, preds
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
+
+            start = done
+        except torch.OutOfMemoryError:
+            if device.type != "cuda":
+                raise
+            torch.cuda.empty_cache()
+            if current_bs <= min_batch_anchors:
+                raise RuntimeError(
+                    f"CUDA OOM at minimum batch size {current_bs}. "
+                    "Try reducing model size or running on a larger GPU."
+                ) from None
+            next_bs = max(min_batch_anchors, current_bs // 2)
+            batch_anchors = next_bs
+            print(f"OOM at anchor batch {current_bs}; retrying from index {start} with batch {next_bs}")
 
     channel_hist_importance /= float(len(anchors))
     channel_fut_importance /= float(len(anchors))
@@ -272,13 +308,14 @@ def main():
     summary = {
         "run_dir": str(run_dir),
         "checkpoint": str(ckpt_path),
+        "output_dir": str(out_dir),
         "eval_year": "all" if eval_year is None else int(eval_year),
         "n_days": int(len(anchors)),
         "zones": zone_cols,
         "method": "importance_only_sum_backward",
         "notes": [
-            "Uses one backward pass per anchor by summing outputs across all zones/hours.",
-            "Much faster than per-zone/per-hour saliency loops; intended for ranking CSV refresh.",
+            "Uses one backward pass per zone while processing anchors in mini-batches.",
+            "Automatically shrinks anchor batch size and retries when CUDA OOM is encountered.",
         ],
     }
     with open(out_dir / "summary_importance_only.json", "w", encoding="utf-8") as f:

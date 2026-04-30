@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Spatial attention extraction and analysis for Assignment 3 Part 3.
+"""Zone-conditioned spatial attribution analysis for Assignment 3 Part 3.
 
-Exports future-token -> spatial-token attention as:
+Exports zone/hour-conditioned spatial token attribution maps as:
   [sample, zone, forecast_hour, patch_y, patch_x]
 
 Also saves patch coordinates, corresponding weather fields for same samples,
@@ -430,38 +430,48 @@ def main():
         hist_energy = torch.from_numpy(energy_vals[hist_slice]).unsqueeze(0).to(device)
         fut_time = torch.from_numpy(fut_hours).to(torch.int64).unsqueeze(0).to(device)
 
-        with torch.no_grad():
-            hist_weather, hist_demand, hist_cal, fut_weather, fut_cal = model.adapt_inputs(
-                hist_weather_raw, hist_energy, fut_weather_raw, fut_time
-            )
-            seq, hist_steps, fut_steps, tps = build_seq_from_adapted(
-                model, hist_weather, hist_demand, hist_cal, fut_weather, fut_cal
-            )
+        hist_weather, hist_demand, hist_cal, fut_weather, fut_cal = model.adapt_inputs(
+            hist_weather_raw, hist_energy, fut_weather_raw, fut_time
+        )
+        seq, hist_steps, fut_steps, tps = build_seq_from_adapted(
+            model, hist_weather, hist_demand, hist_cal, fut_weather, fut_cal
+        )
 
-            fut_t_idx = torch.arange(hist_steps, hist_steps + fut_steps, device=device)
-            q_pos = fut_t_idx * tps + model.num_patches
-            q_rows = extract_layer0_attention_rows(model, seq, q_pos)  # [Tf,S]
+        seq = seq.detach().requires_grad_(True)
+        encoded = model.transformer(seq)
 
-            seq_idx = torch.arange(q_rows.shape[1], device=device)
-            spatial_mask = (seq_idx % tps) < model.num_patches
-            k_pos = seq_idx[spatial_mask]
-            patch_ids = (k_pos % tps).to(torch.long)
+        fut_t_idx = torch.arange(hist_steps, hist_steps + fut_steps, device=device)
+        fut_tab_pos = fut_t_idx * tps + model.num_patches
+        fut_states = encoded[:, fut_tab_pos, :]
+        preds = model.pred_head(fut_states)  # [1,Tf,Z]
 
-            # Base map per forecast hour (shared by architecture). Replicate across zones.
-            shared_maps = np.zeros((future_len, gh, gw), dtype=np.float32)
+        seq_idx = torch.arange(seq.shape[1], device=device)
+        spatial_mask = (seq_idx % tps) < model.num_patches
+        k_pos = seq_idx[spatial_mask]
+        patch_ids = (k_pos % tps).to(torch.long)
+
+        # Zone-conditioned spatial attribution map from |d y_{zone,hour} / d token|.
+        for zi in range(num_zones):
             for h in range(future_len):
-                row = q_rows[h, k_pos]
-                patch_sum = torch.zeros(gh * gw, device=device)
-                patch_sum.scatter_add_(0, patch_ids, row)
-                shared_maps[h] = patch_sum.reshape(gh, gw).cpu().numpy().astype(np.float32)
-            attn_tensor[si] = np.repeat(shared_maps[None, :, :, :], repeats=num_zones, axis=0)
+                model.zero_grad(set_to_none=True)
+                if seq.grad is not None:
+                    seq.grad.zero_()
 
-            # Save weather fields aligned to these samples as patch means.
-            # fut_weather shape: [1,Tf,C,down_h,down_w]
-            fw = fut_weather[0]  # [Tf,C,H,W]
-            fw_patch = F.adaptive_avg_pool2d(fw.reshape(future_len * 7, fw.shape[-2], fw.shape[-1]).unsqueeze(1), (gh, gw))
-            fw_patch = fw_patch.squeeze(1).reshape(future_len, 7, gh, gw)
-            weather_patch_tensor[si] = fw_patch.cpu().numpy().astype(np.float32)
+                scalar = preds[0, h, zi]
+                scalar.backward(retain_graph=True)
+
+                token_grad = seq.grad.detach().abs()[0].mean(dim=-1)  # [S]
+                spatial_grad = token_grad[k_pos]
+                patch_sum = torch.zeros(gh * gw, device=device)
+                patch_sum.scatter_add_(0, patch_ids, spatial_grad)
+                attn_tensor[si, zi, h] = patch_sum.reshape(gh, gw).cpu().numpy().astype(np.float32)
+
+        # Save weather fields aligned to these samples as patch means.
+        # fut_weather shape: [1,Tf,C,down_h,down_w]
+        fw = fut_weather[0]  # [Tf,C,H,W]
+        fw_patch = F.adaptive_avg_pool2d(fw.reshape(future_len * 7, fw.shape[-2], fw.shape[-1]).unsqueeze(1), (gh, gw))
+        fw_patch = fw_patch.squeeze(1).reshape(future_len, 7, gh, gw)
+        weather_patch_tensor[si] = fw_patch.detach().cpu().numpy().astype(np.float32)
 
         sample_meta_rows.append(
             {
@@ -554,11 +564,11 @@ def main():
         "has_matplotlib": HAS_MPL,
         "has_imageio": HAS_IMAGEIO,
         "has_pyproj": HAS_PYPROJ,
-        "attention_layer_used": 0,
+        "attention_layer_used": None,
         "notes": [
-            "This model's future query token stream is shared before zone projection.",
-            "Therefore raw future->spatial attention is identical across zones for a given sample/hour.",
-            "Zone axis is preserved without averaging by replicating shared maps per zone as requested.",
+            "Maps are zone-conditioned token-attribution scores computed from |d prediction / d token|.",
+            "Spatial token attributions are aggregated into patch grid cells across the sequence.",
+            "Unlike raw shared attention rows, this method can vary by zone and forecast hour.",
         ],
     }
     with open(out_dir / "summary.json", "w", encoding="utf-8") as f:

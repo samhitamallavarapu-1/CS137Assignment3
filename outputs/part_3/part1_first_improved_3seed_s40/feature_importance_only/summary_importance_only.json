@@ -1,0 +1,22 @@
+{
+  "run_dir": "/cluster/tufts/c26sp1cs0137/smalla01/CS137Assignment3/outputs/part_1/part1_first_improved_3seed_s40",
+  "checkpoint": "/cluster/tufts/c26sp1cs0137/smalla01/CS137Assignment3/outputs/part_1/part1_first_improved_3seed_s40/checkpoints/best.pt",
+  "output_dir": "/cluster/tufts/c26sp1cs0137/smalla01/CS137Assignment3/outputs/part_3/part1_first_improved_3seed_s40/feature_importance_only",
+  "eval_year": "all",
+  "n_days": 1819,
+  "zones": [
+    "ME",
+    "NH",
+    "VT",
+    "CT",
+    "RI",
+    "SEMA",
+    "WCMA",
+    "NEMA_BOST"
+  ],
+  "method": "importance_only_sum_backward",
+  "notes": [
+    "Uses one backward pass per zone while processing anchors in mini-batches.",
+    "Automatically shrinks anchor batch size and retries when CUDA OOM is encountered."
+  ]
+}

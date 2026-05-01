@@ -16,6 +16,7 @@ PROJECT_ROOT="/cluster/tufts/c26sp1cs0137/smalla01/CS137Assignment3"
 cd "$PROJECT_ROOT"
 
 # Logs directory already exists in repository structure.
+# sbatch --export=ALL,RUN_NAME_PREFIX=part2_first_improved_3seed,EPOCHS=20,LOSS=mae,SPLIT_MODE=blocked,BLOCKED_VAL_POSITION=tail,PURGE_GAP=-1,SCHEDULER=cosine,WARMUP_EPOCHS=2,MIN_LR=1e-6,AMP=1,RESUME_IF_EXISTS=1,ARCH_VARIANT=residual_cnn,BATCH_SIZE=32 slurm/part_2/scripts/run_part2.slurm
 # sbatch --export=ALL,RUN_NAME_PREFIX=part2_first_improved_3seed,EPOCHS=20,LOSS=mae,SPLIT_MODE=blocked,BLOCKED_VAL_POSITION=tail,PURGE_GAP=-1,SCHEDULER=cosine,WARMUP_EPOCHS=2,MIN_LR=1e-6,AMP=1,RESUME_IF_EXISTS=1 slurm/part_2/scripts/run_part2.slurm
 
 PYTHON="$HOME/.conda/envs/cs137-cnn/bin/python"

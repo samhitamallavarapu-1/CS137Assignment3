@@ -1,0 +1,34 @@
+{
+  "run_dir": "/cluster/tufts/c26sp1cs0137/smalla01/CS137Assignment3/outputs/part_1/part1_first_improved_3seed_s40",
+  "checkpoint": "/cluster/tufts/c26sp1cs0137/smalla01/CS137Assignment3/outputs/part_1/part1_first_improved_3seed_s40/checkpoints/best.pt",
+  "eval_year": 2022,
+  "n_days": 10,
+  "zones": [
+    "ME",
+    "NH",
+    "VT",
+    "CT",
+    "RI",
+    "SEMA",
+    "WCMA",
+    "NEMA_BOST"
+  ],
+  "saliency_shape": [
+    8,
+    24,
+    96,
+    96
+  ],
+  "patch_saliency_shape": [
+    8,
+    24,
+    10,
+    10
+  ],
+  "has_matplotlib": true,
+  "has_imageio": true,
+  "notes": [
+    "Saliency is absolute gradient of zone/hour output w.r.t. normalized weather inputs.",
+    "Feature-importance ratings are gradient-magnitude based (higher means more influence)."
+  ]
+}

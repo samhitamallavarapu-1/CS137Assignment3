@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import os
 import pathlib
+import json
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -471,6 +472,25 @@ def _resolve_checkpoint_path(base_dir: str) -> Optional[str]:
     return None
 
 
+def _infer_variant_from_dir(base_dir: str) -> str:
+    base_name = os.path.basename(os.path.abspath(base_dir)).lower()
+    if "residual" in base_name:
+        return "residual_cnn"
+    if "no_cnn" in base_name or "nocnn" in base_name:
+        return "no_cnn"
+    return "no_cnn"
+
+
+def _load_json_if_exists(path: str) -> Dict[str, Any] | None:
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if isinstance(data, dict):
+        return data
+    return None
+
+
 def _load_checkpoint(checkpoint_path: str) -> Tuple[dict, dict]:
     try:
         with torch.serialization.safe_globals([pathlib.PosixPath]):
@@ -500,17 +520,55 @@ def _load_optional_tensor(checkpoint: dict, key: str) -> torch.Tensor | None:
     return tensor
 
 
-def _model_from_metadata(metadata: Dict[str, Any]) -> Part2HierarchicalSeq2Seq:
-    cfg = ModelConfig(
-        weather_channels=int(metadata.get("n_weather_vars", 7)),
+def _build_eval_config(base_dir: str, metadata: Dict[str, Any], checkpoint: Dict[str, Any] | None) -> ModelConfig:
+    file_cfg = _load_json_if_exists(os.path.join(base_dir, "config.json")) or {}
+    ckpt_cfg = {}
+    if isinstance(checkpoint, dict) and isinstance(checkpoint.get("config"), dict):
+        ckpt_cfg = checkpoint["config"]
+
+    source_cfg = {**file_cfg, **ckpt_cfg}
+    variant = str(source_cfg.get("arch_variant", _infer_variant_from_dir(base_dir)))
+
+    return ModelConfig(
+        weather_channels=int(metadata.get("n_weather_vars", source_cfg.get("weather_channels", 7))),
         num_zones=int(metadata["n_zones"]),
         calendar_dim=7,
-        history_len=int(metadata.get("history_len", 168)),
-        future_steps=int(metadata.get("future_len", 24)),
+        future_steps=int(metadata.get("future_len", source_cfg.get("future_len", 24))),
+        history_len=int(metadata.get("history_len", source_cfg.get("history_len", 168))),
+        d_model=int(source_cfg.get("d_model", 256)),
+        num_heads=int(source_cfg.get("num_heads", 8)),
+        num_layers=int(source_cfg.get("num_layers", 4)),
+        decoder_layers=int(source_cfg.get("decoder_layers", 3)),
+        ff_dim=int(source_cfg.get("ff_dim", 1024)),
+        dropout=float(source_cfg.get("dropout", 0.1)),
+        cnn_hidden_dim=int(source_cfg.get("cnn_hidden_dim", 64)),
+        residual_blocks=int(source_cfg.get("residual_blocks", 3)),
+        spatial_layers=int(source_cfg.get("spatial_layers", 2)),
+        patch_grid_h=int(source_cfg.get("patch_grid_h", 10)),
+        patch_grid_w=int(source_cfg.get("patch_grid_w", 10)),
+        arch_variant=variant,
+        use_weather_stats=bool(source_cfg.get("use_weather_stats", True)),
+        crop_mode=str(source_cfg.get("crop_mode", "new_england")),
+        crop_y0=int(source_cfg.get("crop_y0", 0)),
+        crop_y1=int(source_cfg.get("crop_y1", 450)),
+        crop_x0=int(source_cfg.get("crop_x0", 0)),
+        crop_x1=int(source_cfg.get("crop_x1", 449)),
+        downsample_h=int(source_cfg.get("downsample_h", 96)),
+        downsample_w=int(source_cfg.get("downsample_w", 96)),
+        tokenizer_chunk_steps=int(source_cfg.get("tokenizer_chunk_steps", 0)),
     )
+
+
+def _model_from_metadata(metadata: Dict[str, Any]) -> Part2HierarchicalSeq2Seq:
+    base_dir = os.path.dirname(__file__)
+    checkpoint_path = _resolve_checkpoint_path(base_dir)
+    checkpoint = None
+    if checkpoint_path is not None:
+        _, checkpoint = _load_checkpoint(checkpoint_path)
+
+    cfg = _build_eval_config(base_dir, metadata, checkpoint)
     model = Part2HierarchicalSeq2Seq(cfg)
 
-    checkpoint_path = _resolve_checkpoint_path(os.path.dirname(__file__))
     if checkpoint_path is not None:
         state_dict, checkpoint = _load_checkpoint(checkpoint_path)
         model.load_state_dict(state_dict, strict=False)
@@ -529,6 +587,20 @@ def _model_from_metadata(metadata: Dict[str, Any]) -> Part2HierarchicalSeq2Seq:
         if weather_mean is not None and weather_std is not None:
             model.weather_mean = weather_mean.view(-1, 1, 1)
             model.weather_std = weather_std.view(-1, 1, 1)
+    else:
+        # Fallback when eval package provides stats as JSON instead of checkpoint payload.
+        norm = _load_json_if_exists(os.path.join(base_dir, "normalization.json")) or {}
+        energy_mean = norm.get("energy_mean")
+        energy_std = norm.get("energy_std")
+        weather_mean = norm.get("weather_mean")
+        weather_std = norm.get("weather_std")
+
+        if energy_mean is not None and energy_std is not None:
+            model.energy_mean = torch.as_tensor(energy_mean, dtype=torch.float32).view(1, 1, -1)
+            model.energy_std = torch.as_tensor(energy_std, dtype=torch.float32).view(1, 1, -1)
+        if weather_mean is not None and weather_std is not None:
+            model.weather_mean = torch.as_tensor(weather_mean, dtype=torch.float32).view(-1, 1, 1)
+            model.weather_std = torch.as_tensor(weather_std, dtype=torch.float32).view(-1, 1, 1)
 
     return model
 
